@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="Pronto Isla">
 <title>Pronto · Inventario Isla</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <style>
   :root { --rojo:#e30613; --rojo2:#fdeceb; --error:#b00020; --verde:#2e7d32; --gris:#666; --borde:#d6dbe4; --fondo:#f4f6fa; }
   * { box-sizing:border-box; }
@@ -26,6 +27,22 @@
   main { padding:16px; max-width:640px; margin:0 auto; }
   .tarjeta { background:#fff; border:1px solid var(--borde); border-radius:12px; padding:16px; margin-bottom:14px; }
   .oculto { display:none !important; }
+  #ticket .linea { border-bottom:1px dashed var(--borde); padding:10px 0; }
+  #ticket .linea:last-of-type { border-bottom:0; }
+  #ticket .fila { display:flex; justify-content:space-between; gap:10px; font-weight:600; }
+  #ticket svg { display:block; max-width:100%; height:auto; margin:6px auto 0; background:#fff; }
+  #ticket .total { display:flex; justify-content:space-between; font-size:1.3em; font-weight:800; padding-top:10px; border-top:2px solid var(--borde); margin-top:6px; }
+  .precio { color:var(--sub, #666); font-size:.9em; }
+  .match { display:block; font-size:.85em; font-weight:700; margin-top:2px; }
+  .match.si { color:#0a8a3a; } .match.no { color:#e30613; } .match.pk { color:#b26b00; }
+  #listaConteo li.foco { background:#fff6d6; }
+  #listaConteo .der { display:flex; flex-direction:column; align-items:flex-end; text-align:right; }
+  @media print {
+    body * { visibility:hidden; }
+    #ticket, #ticket * { visibility:visible; }
+    #ticket { position:absolute; left:0; top:0; width:100%; box-shadow:none; }
+    #ticket .noimprimir { display:none; }
+  }
   label { display:block; font-size:14px; color:var(--gris); margin:10px 0 4px; }
   input, select { width:100%; padding:12px; font-size:17px; border:1px solid var(--borde); border-radius:10px; background:#fff; color:#1a1a1a; }
   .btn { display:block; width:100%; padding:15px; font-size:17px; font-weight:600; border:0; border-radius:10px; background:var(--rojo); color:#fff; margin-top:12px; }
@@ -141,9 +158,12 @@
       <div class="titulo">Lista por guardar</div>
       <ul class="lista" id="lista"></ul>
       <p class="sub" id="listaVacia">Todavía no hay productos. Escanea el primero.</p>
+      <div id="listaTotal" class="oculto"></div>
       <button class="btn" id="btnGuardar" type="button" disabled>Guardar en la planilla</button>
       <div id="movMsg"></div>
     </div>
+
+    <div class="tarjeta oculto" id="ticket"></div>
   </section>
 
   <!-- VENTAS -->
@@ -186,6 +206,9 @@
       <p class="sub">Al cerrar, cuenta cuántas unidades hay en la isla y anótalas. Deja en blanco lo que no contaste.
         Lo que falta se explica primero con los packs 2x vendidos; el resto queda como diferencia.</p>
       <div id="conteoPacks"></div>
+      <div id="lectorConteo" class="oculto"></div>
+      <button class="btn" id="btnEscanearConteo" type="button">📷 Escanear producto</button>
+      <div id="conteoResumen"></div>
       <input id="filtroConteo" placeholder="Buscar producto">
       <div class="checks"><label><input type="checkbox" id="soloPacks"> Solo productos de packs 2x</label></div>
     </div>
@@ -231,8 +254,9 @@
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwzGr2IK2yPYvaewti_rq9H_euhZcL_KJiJiDw4oTUUzwCD8JI15DyMUc9bmmWSRFfkEA/exec';
 
   const $ = id => document.getElementById(id);
-  const PERMISOS = { RECEPCION: 'Recibir mercadería', TRASLADO: 'Trasladar a la isla', VENTA: 'Descontar ventas', SALDOS: 'Ver saldos', CONTEO: 'Contar la isla' };
+  const PERMISOS = { RECEPCION: 'Recibir mercadería', TRASLADO: 'Trasladar a la isla', VENTA: 'Descontar ventas', SALDOS: 'Ver saldos', CONTEO: 'Contar la isla', TICKET: 'Vender (tickets)' };
   const VISTAS = [
+    { id: 'vender', txt: 'Vender', permiso: 'TICKET' },
     { id: 'recibir', txt: 'Recibir', permiso: 'RECEPCION' },
     { id: 'trasladar', txt: 'A isla', permiso: 'TRASLADO' },
     { id: 'ventas', txt: 'Ventas', permiso: 'VENTA' },
@@ -241,6 +265,7 @@
     { id: 'usuarios', txt: 'Usuarios', admin: true }
   ];
   const MODOS = {
+    TICKET:    { titulo: 'Nuevo ticket', ayuda: 'Escanea o busca lo que lleva el cliente. Si junta bebidas de un 2x, se agrupan solas.', vista: 'vender' },
     RECEPCION: { titulo: 'Recibir mercadería', ayuda: 'Escanea lo que llega a bodega e indica cuántas unidades.', vista: 'recibir' },
     TRASLADO:  { titulo: 'Trasladar a la isla', ayuda: 'Escanea lo que llevas de la bodega a la isla.', vista: 'trasladar' },
     VENTA:     { titulo: 'Anotar ventas', ayuda: 'Solo si no hay reporte de Fuel. Se descuenta de la isla. Para un 2x escanea el código del pack (1 = un pack).', vista: 'ventas' }
@@ -266,7 +291,8 @@
     return p.length ? '<div class="aviso info">' + p.map(k => '<b>' + esc(k.nombre) + '</b>: ' + k.pendiente +
       ' unidades vendidas sin sabor (' + esc(k.productos.join(', ')) + '). Se reparten en el próximo conteo de la isla.').join('<br>') + '</div>' : '';
   }
-  let listas = mem.get('listas', { RECEPCION: [], TRASLADO: [], VENTA: [] });
+  let listas = Object.assign({ RECEPCION: [], TRASLADO: [], VENTA: [], TICKET: [] }, mem.get('listas', {}));
+  const pesos = n => '$' + Math.round(n).toLocaleString('es-CL');
   let modo = 'RECEPCION', actual = null, lector = null, ventasPendientes = null, usuarios = [];
 
   // ---------- utilidades ----------
@@ -316,7 +342,10 @@
   function mostrar(vista) {
     SECCIONES.forEach(v => $('v-' + v).classList.add('oculto'));
     detenerLector();
-    if (vista === 'recibir') { modo = 'RECEPCION'; vista = 'mov'; }
+    $('ticket').classList.add('oculto');
+    detenerLectorConteo();
+    if (vista === 'vender') { modo = 'TICKET'; vista = 'mov'; }
+    else if (vista === 'recibir') { modo = 'RECEPCION'; vista = 'mov'; }
     else if (vista === 'trasladar') { modo = 'TRASLADO'; vista = 'mov'; }
     const marcada = vista === 'mov' ? MODOS[modo].vista : vista;
     document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('activo', b.dataset.vista === marcada));
@@ -492,12 +521,47 @@
   // ---------- lista y guardado ----------
   function pintarLista() {
     const l = listas[modo];
-    $('lista').innerHTML = l.map((x, i) => '<li>' + conFoto(x) + '<span><span class="q">' + x.cantidad + '</span> <button class="x" data-i="' + i + '" aria-label="Quitar">✕</button></span></li>').join('');
+    const precioDe = x => { const p = catalogo.find(c => c.sku === x.sku); return p && p.precio ? p.precio : null; };
+    $('lista').innerHTML = l.map((x, i) => '<li>' + conFoto(x) + '<span>' +
+      (modo === 'TICKET' && precioDe(x) ? '<span class="precio">' + pesos(precioDe(x) * x.cantidad) + '</span> ' : '') + '<span class="q">' + x.cantidad + '</span> <button class="x" data-i="' + i + '" aria-label="Quitar">✕</button></span></li>').join('');
     $('lista').querySelectorAll('.x').forEach(b => b.addEventListener('click', () => { l.splice(+b.dataset.i, 1); mem.set('listas', listas); pintarLista(); }));
     $('listaVacia').classList.toggle('oculto', l.length > 0);
     $('btnGuardar').disabled = !l.length;
     const total = l.reduce((a, x) => a + x.cantidad, 0);
-    $('btnGuardar').textContent = l.length ? 'Guardar ' + total + ' unidades en la planilla' : 'Guardar en la planilla';
+    $('btnGuardar').textContent = modo === 'TICKET' ? (l.length ? 'Generar ticket (' + total + ' productos)' : 'Generar ticket')
+      : l.length ? 'Guardar ' + total + ' unidades en la planilla' : 'Guardar en la planilla';
+    $('listaTotal').classList.add('oculto');
+  }
+
+  // ---------- ticket ----------
+  function mostrarTicket(t) {
+    const f = new Date(t.fecha);
+    const html = ['<div class="titulo" style="text-align:center">Pronto · Carrito isla</div>',
+      '<p class="sub" style="text-align:center">Ticket N° ' + t.numero + ' · ' + f.toLocaleDateString('es-CL') + ' ' +
+      f.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) + ' · ' + esc(t.vendedor) + '</p>'];
+    t.lineas.forEach((l, i) => {
+      html.push('<div class="linea"><div class="fila"><span>' + l.cantidad + ' × ' + esc(l.nombre) + '</span><span>' +
+        (l.subtotal !== '' ? pesos(l.subtotal) : '') + '</span></div>' +
+        (l.pack ? '<div class="sub">' + esc(l.sabores.join(' + ')) + '</div>' : '') +
+        '<div class="sub">Código ' + esc(l.codigo) + (l.precio ? ' · ' + pesos(l.precio) + ' c/u' : '') + '</div>' +
+        '<svg id="bc' + i + '"></svg></div>');
+    });
+    html.push('<div class="total"><span>TOTAL</span><span>' + (t.total !== '' ? pesos(t.total) : 'por confirmar') + '</span></div>');
+    if (t.total === '') html.push('<p class="sub">Faltan precios en la planilla: el cajero cobra según el POS.</p>');
+    html.push('<div class="noimprimir"><button class="btn" type="button" id="btnImprimir">🖨️ Imprimir</button>' +
+      '<button class="btn sec" type="button" id="btnNuevoTicket">Nuevo ticket</button></div>');
+    $('ticket').innerHTML = html.join('');
+    t.lineas.forEach((l, i) => {
+      try {
+        if (typeof JsBarcode === 'undefined') throw 0;
+        const cod = String(l.codigo);
+        JsBarcode('#bc' + i, cod, { format: /^\d{13}$/.test(cod) ? 'EAN13' : /^\d{8}$/.test(cod) ? 'EAN8' : 'CODE128', height: 50, width: 2, fontSize: 14, margin: 4 });
+      } catch (e) { const s = $('bc' + i); if (s) s.remove(); }
+    });
+    $('ticket').classList.remove('oculto');
+    $('btnImprimir').addEventListener('click', () => window.print());
+    $('btnNuevoTicket').addEventListener('click', () => { $('ticket').classList.add('oculto'); aviso('movMsg'); window.scrollTo(0, 0); });
+    $('ticket').scrollIntoView({ behavior: 'smooth' });
   }
   function avisarNegativos(s) {
     const malos = s.filter(x => x.bodega < 0 || x.isla < 0);
@@ -512,6 +576,15 @@
     const lote = mem.get('lote.' + modo, '') || (Date.now() + '-' + Math.random().toString(36).slice(2, 8));
     mem.set('lote.' + modo, lote);
     $('btnGuardar').disabled = true; aviso('movMsg', 'info', 'Guardando…');
+    if (modo === 'TICKET') {
+      try {
+        const j = await llamar('ticket', { lote, items: l.map(x => ({ sku: x.sku, cantidad: x.cantidad })) });
+        listas.TICKET = []; mem.set('listas', listas); mem.set('lote.TICKET', '');
+        pintarLista(); aviso('movMsg', 'ok', '✓ Ticket N° ' + j.numero + ' listo. Muéstralo en caja.');
+        mostrarTicket(j);
+      } catch (e) { aviso('movMsg', 'error', 'No se generó: ' + e.message + ' El pedido sigue aquí.'); $('btnGuardar').disabled = false; }
+      return;
+    }
     try {
       const j = await llamar('movimientos', { lote, items: l.map(x => Object.assign({ tipo: modo }, x)) });
       guardarEstado(j);
@@ -591,23 +664,72 @@
 
   // ---------- conteo de la isla ----------
   let conteo = mem.get('conteo', {}); // sku -> número anotado (se guarda por si se corta)
+  let relojConteo = null, lectorC = null, enfocado = null;
+  async function actualizarSaldosConteo(silencioso) {
+    try { const j = await llamar('saldos'); guardarEstado(j); refrescarMatches(); $('conteoPacks').innerHTML = textoPacks(); if (!silencioso) aviso('conteoMsg'); }
+    catch (e) { if (!silencioso) aviso('conteoMsg', 'error', e.message); }
+  }
   async function abrirConteo() {
-    pintarConteo(); aviso('conteoMsg', 'info', 'Actualizando…');
-    try { const j = await llamar('saldos'); guardarEstado(j); pintarConteo(); aviso('conteoMsg'); }
-    catch (e) { aviso('conteoMsg', 'error', e.message); }
+    enfocado = null; pintarConteo(); aviso('conteoMsg', 'info', 'Actualizando…');
+    await actualizarSaldosConteo(false);
+    clearInterval(relojConteo); // en tiempo real: refresca el sistema cada 20 s mientras se cuenta
+    relojConteo = setInterval(() => { if ($('v-conteo').classList.contains('oculto')) { clearInterval(relojConteo); detenerLectorConteo(); } else actualizarSaldosConteo(true); }, 20000);
+  }
+  // Compara lo contado con el saldo de la isla en el sistema (si hay 2x sin repartir, lo avisa)
+  function textoMatch(sku) {
+    const v = conteo[sku];
+    if (v === undefined || v === '') return '';
+    const s = saldos.find(x => x.sku === sku); if (!s) return '';
+    const dif = Number(v) - s.isla;
+    if (dif === 0) return '<span class="match si">✓ Coincide (' + s.isla + ')</span>';
+    const pk = packs.find(k => k.pendiente > 0 && k.skus.indexOf(sku) >= 0);
+    if (dif < 0 && pk && -dif <= pk.pendiente) return '<span class="match pk">Sistema ' + s.isla + ' · faltan ' + (-dif) + ': puede ser del ' + esc(pk.nombre) + '</span>';
+    return '<span class="match no">✗ Sistema ' + s.isla + ' · ' + (dif > 0 ? 'sobran ' + dif : 'faltan ' + (-dif)) + '</span>';
+  }
+  function refrescarMatches() {
+    $('listaConteo').querySelectorAll('input').forEach(i => { const m = $('m-' + i.dataset.sku); if (m) m.innerHTML = textoMatch(i.dataset.sku); });
+    const hechos = Object.keys(conteo).filter(k => conteo[k] !== '');
+    const ok = hechos.filter(k => { const s = saldos.find(x => x.sku === k); return s && Number(conteo[k]) === s.isla; }).length;
+    $('conteoResumen').innerHTML = hechos.length ? '<div class="aviso ' + (ok === hechos.length ? 'ok' : 'info') + '">' + hechos.length + ' contados · ' + ok + ' coinciden · ' + (hechos.length - ok) + ' con diferencia</div>' : '';
   }
   function pintarConteo() {
     $('conteoPacks').innerHTML = textoPacks();
     const enPacks = {}; packs.forEach(k => k.skus.forEach(s => enPacks[s] = 1));
     const t = sinTilde($('filtroConteo').value.trim()), solo = $('soloPacks').checked;
-    const r = saldos.filter(x => (!solo || enPacks[x.sku]) && (!t || sinTilde(x.descripcion).includes(t)));
-    $('listaConteo').innerHTML = r.map(x => '<li>' + conFoto(x) + '<input type="number" inputmode="numeric" min="0" style="width:80px;margin:0" data-sku="' +
-      esc(x.sku) + '" value="' + (conteo[x.sku] !== undefined ? conteo[x.sku] : '') + '" placeholder="—"></li>').join('');
+    let r = saldos.filter(x => (!solo || enPacks[x.sku]) && (!t || sinTilde(x.descripcion).includes(t)));
+    if (enfocado) r = r.filter(x => x.sku === enfocado).concat(r.filter(x => x.sku !== enfocado));
+    $('listaConteo').innerHTML = r.map(x => '<li' + (x.sku === enfocado ? ' class="foco"' : '') + '>' + conFoto(x) + '<span class="der"><input type="number" inputmode="numeric" min="0" style="width:80px;margin:0" data-sku="' +
+      esc(x.sku) + '" value="' + (conteo[x.sku] !== undefined ? conteo[x.sku] : '') + '" placeholder="—"><span id="m-' + esc(x.sku) + '"></span></span></li>').join('');
     $('listaConteo').querySelectorAll('input').forEach(i => i.addEventListener('input', () => {
       if (i.value === '') delete conteo[i.dataset.sku]; else conteo[i.dataset.sku] = i.value;
-      mem.set('conteo', conteo);
+      mem.set('conteo', conteo); refrescarMatches();
     }));
+    refrescarMatches();
   }
+  async function iniciarLectorConteo() {
+    if (typeof Html5Qrcode === 'undefined') return aviso('conteoMsg', 'error', 'No cargó el lector de códigos. Busca el producto por nombre.');
+    $('lectorConteo').classList.remove('oculto'); $('btnEscanearConteo').textContent = 'Detener cámara';
+    const F = Html5QrcodeSupportedFormats;
+    lectorC = new Html5Qrcode('lectorConteo', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128], verbose: false });
+    try {
+      await lectorC.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.45) }) },
+        cod => { if (navigator.vibrate) navigator.vibrate(80); detenerLectorConteo(); enfocarConteo(cod); }, () => {});
+    } catch (e) { detenerLectorConteo(); aviso('conteoMsg', 'error', 'No se pudo abrir la cámara. Dale permiso o busca por nombre.'); }
+  }
+  function detenerLectorConteo() {
+    if (lectorC) { const l = lectorC; lectorC = null; l.stop().catch(() => {}).finally(() => { try { l.clear(); } catch (e) {} }); }
+    $('lectorConteo').classList.add('oculto'); $('btnEscanearConteo').textContent = '📷 Escanear producto';
+  }
+  function enfocarConteo(cod) {
+    cod = String(cod).trim();
+    const p = saldos.find(x => x.ean === cod || x.sku === cod || (/^\d+$/.test(cod) && x.ean.replace(/^0+/, '') === cod.replace(/^0+/, '')));
+    if (!p) return aviso('conteoMsg', 'error', 'El código ' + cod + ' no es un producto del carrito.');
+    aviso('conteoMsg'); enfocado = p.sku; $('filtroConteo').value = ''; $('soloPacks').checked = false;
+    pintarConteo();
+    const i = $('listaConteo').querySelector('input'); i.focus(); i.select(); i.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    actualizarSaldosConteo(true); // trae el saldo más reciente para comparar
+  }
+  $('btnEscanearConteo').addEventListener('click', () => lectorC ? detenerLectorConteo() : iniciarLectorConteo());
   $('filtroConteo').addEventListener('input', pintarConteo);
   $('soloPacks').addEventListener('change', pintarConteo);
   $('btnGuardarConteo').addEventListener('click', async () => {
