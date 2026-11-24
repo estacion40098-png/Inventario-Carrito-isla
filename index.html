@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e30613">
+<title>Inventario Carrito</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --azul:#e30613; --azul2:#fdeceb; --rojo:#b00020; --verde:#2e7d32; --gris:#666; --borde:#d6dbe4; --fondo:#f4f6fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--fondo); color:#1a1a1a; font-size:17px; }
+  header { background:#fff; color:#1a1a1a; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:4px solid var(--azul); }
+  header h1 { font-size:22px; margin:0; font-weight:800; letter-spacing:.5px; line-height:1; }
+  header h1 small { display:block; font-size:12px; color:var(--azul); font-weight:700; letter-spacing:3px; margin-top:2px; }
+  header .logo { width:34px; height:40px; background:var(--azul); border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:#fff; font-size:20px; margin-right:10px; transform:rotate(-6deg); }
+  header .marca { display:flex; align-items:center; }
+  header button { background:var(--azul); color:#fff; border:0; border-radius:8px; padding:6px 10px; font-size:14px; }
+  nav { display:flex; background:#fff; border-bottom:1px solid var(--borde); position:sticky; top:0; z-index:5; }
+  nav button { flex:1; padding:14px 4px; border:0; background:none; font-size:15px; color:var(--gris); border-bottom:3px solid transparent; }
+  nav button.activo { color:var(--azul); border-bottom-color:var(--azul); font-weight:600; }
+  main { padding:16px; max-width:640px; margin:0 auto; }
+  .tarjeta { background:#fff; border:1px solid var(--borde); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .oculto { display:none !important; }
+  label { display:block; font-size:14px; color:var(--gris); margin:10px 0 4px; }
+  input, select { width:100%; padding:12px; font-size:17px; border:1px solid var(--borde); border-radius:10px; background:#fff; }
+  .btn { display:block; width:100%; padding:15px; font-size:17px; font-weight:600; border:0; border-radius:10px; background:var(--azul); color:#fff; margin-top:12px; }
+  .btn.sec { background:var(--azul2); color:var(--azul); }
+  .btn.peligro { background:#fdecea; color:var(--rojo); }
+  .btn:disabled { opacity:.5; }
+  #lector { width:100%; border-radius:10px; overflow:hidden; background:#000; }
+  .producto { font-size:18px; font-weight:600; }
+  .sub { font-size:14px; color:var(--gris); }
+  .cant { display:flex; gap:8px; align-items:center; margin-top:10px; }
+  .cant button { width:56px; height:52px; font-size:26px; border:1px solid var(--borde); border-radius:10px; background:#fff; }
+  .cant input { text-align:center; font-size:22px; font-weight:600; }
+  ul.lista { list-style:none; padding:0; margin:0; }
+  ul.lista li { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--borde); }
+  ul.lista li:last-child { border-bottom:0; }
+  ul.lista .q { font-weight:700; font-size:19px; white-space:nowrap; }
+  ul.lista .x { border:0; background:none; color:var(--rojo); font-size:22px; padding:0 4px; }
+  .aviso { padding:12px; border-radius:10px; margin-top:10px; font-size:15px; }
+  .aviso.ok { background:#e8f5e9; color:var(--verde); }
+  .aviso.error { background:#fdecea; color:var(--rojo); }
+  .aviso.info { background:var(--azul2); color:var(--azul); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th, td { padding:8px 4px; border-bottom:1px solid var(--borde); text-align:left; }
+  th.n, td.n { text-align:right; width:58px; }
+  td.neg { color:var(--rojo); font-weight:700; }
+  .fila { display:flex; gap:8px; }
+  .fila > * { flex:1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="marca"><span class="logo">📦</span><h1>PRONTO<small>INVENTARIO ISLA</small></h1></div>
+  <button id="btnConfig" type="button">Ajustes</button>
+</header>
+<nav id="menu">
+  <button data-vista="recibir" class="activo">Recibir</button>
+  <button data-vista="trasladar">A isla</button>
+  <button data-vista="ventas">Ventas</button>
+  <button data-vista="saldos">Saldos</button>
+</nav>
+<main>
+
+  <!-- AJUSTES -->
+  <section id="v-config" class="oculto">
+    <div class="tarjeta">
+      <div class="producto">Conectar con la planilla</div>
+      <p class="sub">Esto se hace una sola vez en cada teléfono. Los datos te los da quien activó la planilla.</p>
+      <label for="cfgUrl">Dirección del script (empieza con https://script.google.com/)</label>
+      <input id="cfgUrl" type="url" autocomplete="off">
+      <label for="cfgClave">Clave</label>
+      <input id="cfgClave" type="password" autocomplete="off">
+      <label for="cfgNombre">Tu nombre</label>
+      <input id="cfgNombre" type="text" placeholder="José Luis">
+      <button class="btn" id="btnGuardarCfg" type="button">Conectar</button>
+      <div id="cfgMsg"></div>
+    </div>
+  </section>
+
+  <!-- RECIBIR / TRASLADAR comparten pantalla -->
+  <section id="v-mov" class="oculto">
+    <div class="tarjeta">
+      <div class="producto" id="movTitulo"></div>
+      <p class="sub" id="movAyuda"></p>
+      <div id="lector" class="oculto"></div>
+      <button class="btn" id="btnEscanear" type="button">📷 Escanear código</button>
+      <div class="fila" style="margin-top:10px">
+        <input id="codManual" inputmode="numeric" placeholder="o escribe el código / nombre">
+      </div>
+      <div id="sugerencias"></div>
+    </div>
+
+    <div class="tarjeta oculto" id="tarjetaProducto">
+      <div class="producto" id="pNombre"></div>
+      <div class="sub" id="pDetalle"></div>
+      <div class="cant">
+        <button type="button" id="menos">−</button>
+        <input id="pCant" type="number" inputmode="numeric" min="1" value="1">
+        <button type="button" id="mas">+</button>
+      </div>
+      <button class="btn" id="btnAgregar" type="button">Agregar a la lista</button>
+      <button class="btn sec" id="btnCancelarProd" type="button">Cancelar</button>
+    </div>
+
+    <div class="tarjeta oculto" id="tarjetaDesconocido">
+      <div class="producto">Código no reconocido</div>
+      <div class="sub">Código leído: <b id="dCodigo"></b></div>
+      <p class="sub">Si es un producto que todavía no tiene código en la planilla, elígelo y quedará guardado:</p>
+      <select id="dProducto"></select>
+      <button class="btn" id="btnAsignar" type="button">Guardar este código para ese producto</button>
+      <button class="btn sec" id="btnCancelarDesc" type="button">No, volver a escanear</button>
+      <div id="dMsg"></div>
+    </div>
+
+    <div class="tarjeta">
+      <div class="producto">Lista por guardar</div>
+      <ul class="lista" id="lista"></ul>
+      <p class="sub" id="listaVacia">Todavía no hay productos. Escanea el primero.</p>
+      <button class="btn" id="btnGuardar" type="button" disabled>Guardar en la planilla</button>
+      <div id="movMsg"></div>
+    </div>
+  </section>
+
+  <!-- VENTAS -->
+  <section id="v-ventas" class="oculto">
+    <div class="tarjeta">
+      <div class="producto">Descontar ventas de Copec Fuel</div>
+      <p class="sub">Sube el reporte de ventas del día (Excel guardado como CSV). Se descuentan de la isla.</p>
+      <input id="archivoVentas" type="file" accept=".csv,text/csv,text/plain">
+      <div id="ventasMsg"></div>
+      <div id="ventasVista"></div>
+      <button class="btn oculto" id="btnGuardarVentas" type="button">Descontar estas ventas</button>
+    </div>
+    <div class="tarjeta">
+      <div class="producto">O anotar una venta a mano</div>
+      <p class="sub">Para corregir o si no hay reporte.</p>
+      <button class="btn sec" id="btnVentaManual" type="button">Anotar ventas escaneando</button>
+    </div>
+  </section>
+
+  <!-- SALDOS -->
+  <section id="v-saldos" class="oculto">
+    <div class="tarjeta">
+      <div class="fila">
+        <input id="filtroSaldos" placeholder="Buscar producto">
+      </div>
+      <button class="btn sec" id="btnRefrescar" type="button">Actualizar</button>
+      <div id="saldosMsg"></div>
+    </div>
+    <div class="tarjeta">
+      <table>
+        <thead><tr><th>Producto</th><th class="n">Bodega</th><th class="n">Isla</th><th class="n">Vend.</th></tr></thead>
+        <tbody id="tablaSaldos"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const MODOS = {
+    RECEPCION: { titulo: 'Recibir mercadería', ayuda: 'Escanea lo que llega a bodega e indica cuántas unidades.', boton: 'recibir' },
+    TRASLADO:  { titulo: 'Trasladar a la isla', ayuda: 'Escanea lo que llevas de la bodega a la isla.', boton: 'trasladar' },
+    VENTA:     { titulo: 'Anotar ventas', ayuda: 'Solo si no hay reporte de Fuel. Se descuenta de la isla.', boton: 'ventas' }
+  };
+
+  // ---------- memoria local (solo comodidades de este teléfono) ----------
+  const mem = {
+    get(k, d) { try { const v = localStorage.getItem('inv.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('inv.' + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  let cfg = mem.get('cfg', { url: '', clave: '', nombre: '' });
+  let catalogo = mem.get('catalogo', []);
+  let saldos = mem.get('saldos', []);
+  let modo = 'RECEPCION';
+  let listas = mem.get('listas', { RECEPCION: [], TRASLADO: [], VENTA: [] });
+  let actual = null;
+  let lector = null;
+  let ventasPendientes = null;
+
+  // ---------- conexión ----------
+  async function llamar(accion, datos) {
+    if (!cfg.url) throw new Error('Falta conectar la planilla (botón Ajustes).');
+    const r = await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ accion, clave: cfg.clave, usuario: cfg.nombre }, datos || {}))
+    });
+    let j;
+    try { j = await r.json(); } catch (e) { throw new Error('La planilla no respondió bien. Revisa la dirección en Ajustes.'); }
+    if (!j.ok) throw new Error(j.error || 'Error desconocido');
+    return j;
+  }
+  function aviso(id, tipo, txt) { $(id).innerHTML = txt ? '<div class="aviso ' + tipo + '">' + esc(txt) + '</div>' : ''; }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  const tieneEan = p => /^\d{8,14}$/.test(p.ean);
+
+  async function cargarCatalogo() {
+    const j = await llamar('catalogo');
+    catalogo = j.productos; mem.set('catalogo', catalogo);
+  }
+
+  // ---------- navegación ----------
+  function mostrar(vista) {
+    ['config', 'mov', 'ventas', 'saldos'].forEach(v => $('v-' + v).classList.add('oculto'));
+    document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('activo', b.dataset.vista === vista || (vista === 'mov' && b.dataset.vista === MODOS[modo].boton)));
+    detenerLector();
+    if (vista === 'recibir') { modo = 'RECEPCION'; vista = 'mov'; }
+    if (vista === 'trasladar') { modo = 'TRASLADO'; vista = 'mov'; }
+    $('v-' + vista).classList.remove('oculto');
+    if (vista === 'mov') { $('movTitulo').textContent = MODOS[modo].titulo; $('movAyuda').textContent = MODOS[modo].ayuda; cerrarProducto(); pintarLista(); aviso('movMsg'); }
+    if (vista === 'saldos') refrescarSaldos();
+  }
+  document.querySelectorAll('#menu button').forEach(b => b.addEventListener('click', () => {
+    if (!cfg.url) return mostrar('config');
+    mostrar(b.dataset.vista);
+  }));
+  $('btnConfig').addEventListener('click', () => mostrar('config'));
+
+  // ---------- ajustes ----------
+  $('cfgUrl').value = cfg.url; $('cfgClave').value = cfg.clave; $('cfgNombre').value = cfg.nombre;
+  $('btnGuardarCfg').addEventListener('click', async () => {
+    cfg = { url: $('cfgUrl').value.trim(), clave: $('cfgClave').value.trim(), nombre: $('cfgNombre').value.trim() };
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(cfg.url)) return aviso('cfgMsg', 'error', 'La dirección debe empezar con https://script.google.com/macros/s/ y terminar en /exec');
+    if (!cfg.nombre) return aviso('cfgMsg', 'error', 'Escribe tu nombre: queda anotado en cada movimiento.');
+    aviso('cfgMsg', 'info', 'Conectando…');
+    try {
+      await cargarCatalogo();
+      mem.set('cfg', cfg);
+      aviso('cfgMsg', 'ok', '✓ Conectado. ' + catalogo.length + ' productos cargados.');
+      setTimeout(() => mostrar('recibir'), 900);
+    } catch (e) { aviso('cfgMsg', 'error', e.message); }
+  });
+
+  // ---------- escáner ----------
+  async function iniciarLector() {
+    if (typeof Html5Qrcode === 'undefined') return aviso('movMsg', 'error', 'No cargó el lector de códigos. Revisa la conexión a internet o escribe el código.');
+    $('lector').classList.remove('oculto');
+    $('btnEscanear').textContent = 'Detener cámara';
+    const F = Html5QrcodeSupportedFormats;
+    lector = new Html5Qrcode('lector', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128], verbose: false });
+    try {
+      await lector.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.45) }) },
+        codigo => { if (navigator.vibrate) navigator.vibrate(80); detenerLector(); procesarCodigo(codigo); }, () => {});
+    } catch (e) {
+      detenerLector();
+      aviso('movMsg', 'error', 'No se pudo abrir la cámara. Dale permiso de cámara al navegador, o escribe el código a mano.');
+    }
+  }
+  function detenerLector() {
+    if (lector) { const l = lector; lector = null; l.stop().catch(() => {}).finally(() => { try { l.clear(); } catch (e) {} }); }
+    $('lector').classList.add('oculto');
+    $('btnEscanear').textContent = '📷 Escanear código';
+  }
+  $('btnEscanear').addEventListener('click', () => lector ? detenerLector() : iniciarLector());
+
+  // ---------- búsqueda ----------
+  function procesarCodigo(cod) {
+    cod = String(cod).trim();
+    $('codManual').value = ''; $('sugerencias').innerHTML = '';
+    const p = catalogo.find(x => x.ean === cod || x.sku === cod ||
+      (/^\d+$/.test(cod) && /^\d+$/.test(x.ean) && x.ean.replace(/^0+/, '') === cod.replace(/^0+/, '')));
+    if (p) return abrirProducto(p);
+    abrirDesconocido(cod);
+  }
+  $('codManual').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.value.trim()) procesarCodigo(e.target.value); });
+  $('codManual').addEventListener('input', e => {
+    const t = e.target.value.trim().toLowerCase();
+    if (t.length < 2 || /^\d+$/.test(t)) { $('sugerencias').innerHTML = ''; return; }
+    const r = catalogo.filter(x => x.descripcion.toLowerCase().includes(t)).slice(0, 6);
+    $('sugerencias').innerHTML = '<ul class="lista">' + r.map(x => '<li data-sku="' + esc(x.sku) + '"><span>' + esc(x.descripcion) + '</span><span class="sub">elegir</span></li>').join('') + '</ul>';
+    $('sugerencias').querySelectorAll('li').forEach(li => li.addEventListener('click', () => { $('codManual').value = ''; $('sugerencias').innerHTML = ''; abrirProducto(catalogo.find(x => x.sku === li.dataset.sku)); }));
+  });
+
+  function abrirProducto(p) {
+    actual = p;
+    $('tarjetaDesconocido').classList.add('oculto');
+    $('pNombre').textContent = p.descripcion;
+    const s = saldos.find(x => x.sku === p.sku);
+    $('pDetalle').textContent = 'SKU ' + p.sku + (tieneEan(p) ? ' · EAN ' + p.ean : '') + (s ? ' · Bodega ' + s.bodega + ' · Isla ' + s.isla : '');
+    $('pCant').value = 1;
+    $('tarjetaProducto').classList.remove('oculto');
+    $('tarjetaProducto').scrollIntoView({ behavior: 'smooth' });
+  }
+  function cerrarProducto() { actual = null; $('tarjetaProducto').classList.add('oculto'); $('tarjetaDesconocido').classList.add('oculto'); }
+  $('menos').addEventListener('click', () => { $('pCant').value = Math.max(1, (parseInt($('pCant').value, 10) || 1) - 1); });
+  $('mas').addEventListener('click', () => { $('pCant').value = (parseInt($('pCant').value, 10) || 0) + 1; });
+  $('btnCancelarProd').addEventListener('click', cerrarProducto);
+  $('btnAgregar').addEventListener('click', () => {
+    const c = parseInt($('pCant').value, 10);
+    if (!(c > 0)) return aviso('movMsg', 'error', 'La cantidad tiene que ser 1 o más.');
+    const l = listas[modo];
+    const ya = l.find(x => x.sku === actual.sku);
+    if (ya) ya.cantidad += c; else l.push({ sku: actual.sku, ean: actual.ean, descripcion: actual.descripcion, cantidad: c });
+    mem.set('listas', listas);
+    cerrarProducto(); pintarLista(); aviso('movMsg');
+  });
+
+  function abrirDesconocido(cod) {
+    $('tarjetaProducto').classList.add('oculto');
+    $('dCodigo').textContent = cod;
+    const sin = catalogo.filter(x => !tieneEan(x));
+    $('dProducto').innerHTML = sin.length
+      ? sin.map(x => '<option value="' + esc(x.sku) + '">' + esc(x.descripcion) + '</option>').join('')
+      : '<option value="">(todos los productos ya tienen código)</option>';
+    $('btnAsignar').disabled = !sin.length || !/^\d{8,14}$/.test(cod);
+    aviso('dMsg', 'info', /^\d{8,14}$/.test(cod) ? '' : 'No es un código de barras válido. Revisa lo que escribiste.');
+    $('tarjetaDesconocido').classList.remove('oculto');
+  }
+  $('btnCancelarDesc').addEventListener('click', cerrarProducto);
+  $('btnAsignar').addEventListener('click', async () => {
+    const sku = $('dProducto').value, ean = $('dCodigo').textContent;
+    $('btnAsignar').disabled = true; aviso('dMsg', 'info', 'Guardando…');
+    try {
+      await llamar('asignarEan', { sku, ean });
+      await cargarCatalogo();
+      abrirProducto(catalogo.find(x => x.sku === sku));
+    } catch (e) { aviso('dMsg', 'error', e.message); $('btnAsignar').disabled = false; }
+  });
+
+  // ---------- lista y guardado ----------
+  function pintarLista() {
+    const l = listas[modo];
+    $('lista').innerHTML = l.map((x, i) => '<li><span>' + esc(x.descripcion) + '</span><span><span class="q">' + x.cantidad + '</span> <button class="x" data-i="' + i + '" aria-label="Quitar">✕</button></span></li>').join('');
+    $('lista').querySelectorAll('.x').forEach(b => b.addEventListener('click', () => { l.splice(+b.dataset.i, 1); mem.set('listas', listas); pintarLista(); }));
+    $('listaVacia').classList.toggle('oculto', l.length > 0);
+    $('btnGuardar').disabled = !l.length;
+    const total = l.reduce((a, x) => a + x.cantidad, 0);
+    $('btnGuardar').textContent = l.length ? 'Guardar ' + total + ' unidades en la planilla' : 'Guardar en la planilla';
+  }
+  function avisarNegativos(s) {
+    const malos = s.filter(x => x.bodega < 0 || x.isla < 0);
+    return malos.length ? ' Ojo: ' + malos.map(x => x.descripcion + ' (' + (x.bodega < 0 ? 'bodega ' + x.bodega : 'isla ' + x.isla) + ')').join(', ') + ' quedó en negativo: revisa si falta registrar una recepción o un traslado.' : '';
+  }
+  $('btnGuardar').addEventListener('click', async () => {
+    const l = listas[modo];
+    if (modo === 'TRASLADO') {
+      const falta = l.filter(x => { const s = saldos.find(y => y.sku === x.sku); return s && s.bodega < x.cantidad; });
+      if (falta.length && !confirm('Según lo registrado, en bodega no hay suficiente de: ' + falta.map(x => x.descripcion).join(', ') + '. ¿Guardar igual?')) return;
+    }
+    const lote = mem.get('lote.' + modo, '') || (Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+    mem.set('lote.' + modo, lote);
+    $('btnGuardar').disabled = true; aviso('movMsg', 'info', 'Guardando…');
+    try {
+      const j = await llamar('movimientos', { lote, items: l.map(x => Object.assign({ tipo: modo }, x)) });
+      saldos = j.saldos; mem.set('saldos', saldos);
+      listas[modo] = []; mem.set('listas', listas); mem.set('lote.' + modo, '');
+      pintarLista();
+      aviso('movMsg', 'ok', '✓ Guardado.' + avisarNegativos(saldos));
+    } catch (e) {
+      aviso('movMsg', 'error', 'No se guardó: ' + e.message + ' La lista sigue aquí; vuelve a intentar.');
+      $('btnGuardar').disabled = false;
+    }
+  });
+
+  // ---------- ventas desde reporte ----------
+  function partirCsv(txt) {
+    const lineas = txt.replace(/^﻿/, '').split(/\r?\n/).filter(x => x.trim());
+    const sep = (lineas[0].match(/;/g) || []).length > (lineas[0].match(/,/g) || []).length ? ';' : ',';
+    return lineas.map(l => {
+      const out = []; let cur = '', q = false;
+      for (const ch of l) {
+        if (ch === '"') q = !q; else if (ch === sep && !q) { out.push(cur); cur = ''; } else cur += ch;
+      }
+      out.push(cur); return out.map(s => s.trim());
+    });
+  }
+  const sinTilde = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  $('archivoVentas').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    ventasPendientes = null; $('btnGuardarVentas').classList.add('oculto'); $('ventasVista').innerHTML = '';
+    const filas = partirCsv(await f.text());
+    if (filas.length < 2) return aviso('ventasMsg', 'error', 'El archivo está vacío.');
+    const cab = filas[0].map(sinTilde);
+    const iCod = cab.findIndex(h => /(^|\s)(sku|ean|codigo|cod|plu|barra)/.test(h));
+    const iCant = cab.findIndex(h => /cant|unid|qty/.test(h));
+    if (iCod < 0 || iCant < 0) return aviso('ventasMsg', 'error', 'No encuentro las columnas de código y cantidad. Columnas del archivo: ' + filas[0].join(' | '));
+    const suma = {}, noEncontrados = {};
+    filas.slice(1).forEach(r => {
+      const cod = (r[iCod] || '').replace(/\s/g, ''); const c = parseFloat((r[iCant] || '').replace(',', '.'));
+      if (!cod || !(c > 0)) return;
+      const p = catalogo.find(x => x.sku === cod || x.ean === cod);
+      if (!p) { noEncontrados[cod] = (noEncontrados[cod] || 0) + c; return; }
+      (suma[p.sku] = suma[p.sku] || { sku: p.sku, ean: p.ean, descripcion: p.descripcion, cantidad: 0 }).cantidad += c;
+    });
+    ventasPendientes = Object.values(suma);
+    const ne = Object.keys(noEncontrados);
+    $('ventasVista').innerHTML = '<ul class="lista">' + ventasPendientes.map(x => '<li><span>' + esc(x.descripcion) + '</span><span class="q">' + x.cantidad + '</span></li>').join('') + '</ul>';
+    aviso('ventasMsg', ne.length ? 'error' : 'ok', ventasPendientes.length + ' productos del carrito en el reporte.' +
+      (ne.length ? ' ' + ne.length + ' códigos no son del carrito y se ignoran (' + ne.slice(0, 5).join(', ') + (ne.length > 5 ? '…' : '') + ').' : ''));
+    if (ventasPendientes.length) $('btnGuardarVentas').classList.remove('oculto');
+    mem.set('loteVentas', 'v-' + f.name + '-' + f.size + '-' + f.lastModified);
+  });
+  $('btnGuardarVentas').addEventListener('click', async () => {
+    if (!ventasPendientes || !ventasPendientes.length) return;
+    $('btnGuardarVentas').disabled = true; aviso('ventasMsg', 'info', 'Descontando…');
+    try {
+      const j = await llamar('movimientos', { lote: mem.get('loteVentas', ''), items: ventasPendientes.map(x => Object.assign({ tipo: 'VENTA', nota: 'Reporte Fuel' }, x)) });
+      saldos = j.saldos; mem.set('saldos', saldos);
+      aviso('ventasMsg', j.repetido ? 'info' : 'ok', j.repetido ? 'Ese reporte ya se había descontado antes: no se descontó de nuevo.' : '✓ Ventas descontadas de la isla.' + avisarNegativos(saldos));
+      ventasPendientes = null; $('btnGuardarVentas').classList.add('oculto'); $('archivoVentas').value = '';
+    } catch (e) { aviso('ventasMsg', 'error', 'No se descontó: ' + e.message); }
+    $('btnGuardarVentas').disabled = false;
+  });
+  $('btnVentaManual').addEventListener('click', () => { modo = 'VENTA'; mostrar('mov'); });
+
+  // ---------- saldos ----------
+  function pintarSaldos() {
+    const t = sinTilde($('filtroSaldos').value.trim());
+    const r = saldos.filter(x => !t || sinTilde(x.descripcion).includes(t) || x.sku.includes(t) || x.ean.includes(t));
+    $('tablaSaldos').innerHTML = r.map(x => '<tr><td>' + esc(x.descripcion) + '</td><td class="n' + (x.bodega < 0 ? ' neg' : '') + '">' + x.bodega + '</td><td class="n' + (x.isla < 0 ? ' neg' : '') + '">' + x.isla + '</td><td class="n">' + x.vendido + '</td></tr>').join('');
+  }
+  async function refrescarSaldos() {
+    pintarSaldos(); aviso('saldosMsg', 'info', 'Actualizando…');
+    try { const j = await llamar('saldos'); saldos = j.saldos; mem.set('saldos', saldos); pintarSaldos(); aviso('saldosMsg'); }
+    catch (e) { aviso('saldosMsg', 'error', e.message + ' (mostrando los últimos datos guardados)'); }
+  }
+  $('filtroSaldos').addEventListener('input', pintarSaldos);
+  $('btnRefrescar').addEventListener('click', refrescarSaldos);
+
+  // ---------- arranque ----------
+  if (!cfg.url) mostrar('config');
+  else { mostrar('recibir'); cargarCatalogo().catch(() => {}); llamar('saldos').then(j => { saldos = j.saldos; mem.set('saldos', saldos); }).catch(() => {}); }
+})();
+</script>
+</body>
+</html>
