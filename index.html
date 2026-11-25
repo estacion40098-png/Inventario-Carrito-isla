@@ -219,6 +219,25 @@
     </div>
   </section>
 
+  <!-- CONCILIAR FUEL (solo administradores) -->
+  <section id="v-concilia" class="oculto">
+    <div class="tarjeta">
+      <div class="titulo">Conciliar con Copec Fuel</div>
+      <p class="sub">Fuel no manda códigos de barra: cada producto de Fuel se une a uno del carrito. Los que se reconocen por nombre se unen solos; aquí revisas los que faltan.</p>
+      <div id="cMsg"></div>
+      <button class="btn sec" id="btnConcilia" type="button">Actualizar</button>
+    </div>
+    <div class="tarjeta">
+      <div class="titulo">Vendido en Fuel sin vincular</div>
+      <ul class="lista" id="cSin"></ul>
+    </div>
+    <div class="tarjeta">
+      <div class="titulo">Productos del carrito</div>
+      <input id="cFiltro" placeholder="Buscar producto">
+      <ul class="lista" id="cProd"></ul>
+    </div>
+  </section>
+
   <!-- USUARIOS (solo administradores) -->
   <section id="v-usuarios" class="oculto">
     <div class="tarjeta">
@@ -262,6 +281,7 @@
     { id: 'ventas', txt: 'Ventas', permiso: 'VENTA' },
     { id: 'saldos', txt: 'Saldos', permiso: 'SALDOS' },
     { id: 'conteo', txt: 'Conteo', permiso: 'CONTEO' },
+    { id: 'concilia', txt: 'Conciliar', admin: true },
     { id: 'usuarios', txt: 'Usuarios', admin: true }
   ];
   const MODOS = {
@@ -338,7 +358,7 @@
   }
 
   // ---------- navegación ----------
-  const SECCIONES = ['conexion', 'login', 'mov', 'ventas', 'saldos', 'conteo', 'usuarios'];
+  const SECCIONES = ['conexion', 'login', 'mov', 'ventas', 'saldos', 'conteo', 'concilia', 'usuarios'];
   function mostrar(vista) {
     SECCIONES.forEach(v => $('v-' + v).classList.add('oculto'));
     detenerLector();
@@ -354,7 +374,54 @@
     if (vista === 'saldos') refrescarSaldos();
     if (vista === 'conteo') abrirConteo();
     if (vista === 'usuarios') { limpiarFormUsu(); cargarUsuarios(); }
+    if (vista === 'concilia') cargarConcilia();
   }
+
+  // ---------- conciliar con Fuel ----------
+  let concilia = null;
+  async function cargarConcilia(datos) {
+    try {
+      if (!datos) aviso('cMsg', 'info', 'Cargando…');
+      concilia = datos || await llamar('conciliacion');
+      const u = concilia.ultimaFuel;
+      const n = concilia.productos.length, v = concilia.vinculados;
+      $('cMsg').innerHTML = '<div class="aviso ' + (concilia.sinVincular.length ? 'info' : 'ok') + '">' + v + ' de ' + n +
+        ' productos ya están unidos a Fuel. ' + concilia.sinVincular.length + ' de Fuel por revisar.' +
+        (u ? '<br>Última lectura de Fuel: ' + esc(new Date(u.hora).toLocaleString('es-CL')) : '') +
+        (concilia.descontadas ? '<br><b>Se descontaron ' + concilia.descontadas + ' ventas que estaban pendientes.</b>' : '') + '</div>';
+      pintarConcilia();
+    } catch (e) { aviso('cMsg', 'error', e.message); }
+  }
+  function pintarConcilia() {
+    if (!concilia) return;
+    const opciones = sel => '<option value="">— elegir producto del carrito —</option>' + concilia.productos.slice()
+      .sort((a, b) => a.descripcion.localeCompare(b.descripcion))
+      .map(p => '<option value="' + esc(p.sku) + '"' + (p.sku === sel ? ' selected' : '') + '>' + esc(p.descripcion) + '</option>').join('');
+    $('cSin').innerHTML = concilia.sinVincular.length ? concilia.sinVincular.map((f, i) =>
+      '<li><div><b>' + esc(f.nombre || f.pid) + '</b>' + (f.precio ? ' · ' + pesos(f.precio) : '') + '</div>' +
+      '<select data-i="' + i + '">' + opciones(f.sugerido) + '</select>' +
+      '<button class="btn" type="button" data-unir="' + i + '">Unir</button>' +
+      '<button class="btn sec" type="button" data-no="' + i + '">No es del carrito</button></li>').join('')
+      : '<li class="sub">Nada pendiente.</li>';
+    const q = sinTilde($('cFiltro').value);
+    $('cProd').innerHTML = concilia.productos.filter(p => !q || sinTilde(p.descripcion).indexOf(q) >= 0)
+      .sort((a, b) => a.fuel.length - b.fuel.length || a.descripcion.localeCompare(b.descripcion))
+      .map(p => '<li>' + conFoto(p) + (p.precio ? ' · ' + pesos(p.precio) : '') + '<div class="sub">' +
+        (p.fuel.length ? '✓ En Fuel: ' + p.fuel.map(f => esc(f.nombre || f.pid)).join(' · ')
+          : '<span style="color:#c62828">Sin unir: se une solo con su primera venta en Fuel</span>') + '</div></li>').join('');
+  }
+  $('cFiltro').addEventListener('input', pintarConcilia);
+  $('btnConcilia').addEventListener('click', () => cargarConcilia());
+  $('cSin').addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const i = b.dataset.unir !== undefined ? b.dataset.unir : b.dataset.no;
+    const f = concilia.sinVincular[+i];
+    const sku = b.dataset.unir !== undefined ? $('cSin').querySelector('select[data-i="' + i + '"]').value : '';
+    if (b.dataset.unir !== undefined && !sku) return aviso('cMsg', 'error', 'Elige a qué producto del carrito corresponde.');
+    b.disabled = true;
+    try { await cargarConcilia(await llamar('vincular', { pid: f.pid, sku })); }
+    catch (er) { aviso('cMsg', 'error', er.message); b.disabled = false; }
+  });
   function armarMenu() {
     const vis = VISTAS.filter(v => v.admin ? yo.rol === 'ADMIN' : puede(v.permiso));
     $('menu').innerHTML = vis.map(v => '<button type="button" data-vista="' + v.id + '">' + v.txt + '</button>').join('');
