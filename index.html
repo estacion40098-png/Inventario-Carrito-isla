@@ -164,6 +164,12 @@
     </div>
 
     <div class="tarjeta oculto" id="ticket"></div>
+    <div class="tarjeta oculto" id="misTickets">
+      <div class="titulo" id="tkTitulo">Mis tickets de hoy</div>
+      <input id="tkFecha" type="date" class="oculto">
+      <div id="tkResumen"></div>
+      <ul class="lista" id="tkLista"></ul>
+    </div>
   </section>
 
   <!-- VENTAS -->
@@ -384,6 +390,7 @@
     SECCIONES.forEach(v => $('v-' + v).classList.add('oculto'));
     detenerLector();
     $('ticket').classList.add('oculto');
+    $('misTickets').classList.add('oculto');
     detenerLectorConteo();
     if (vista === 'vender') { modo = 'TICKET'; vista = 'mov'; }
     else if (vista === 'recibir') { modo = 'RECEPCION'; vista = 'mov'; }
@@ -391,7 +398,7 @@
     const marcada = vista === 'mov' ? MODOS[modo].vista : vista;
     document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('activo', b.dataset.vista === marcada));
     $('v-' + vista).classList.remove('oculto');
-    if (vista === 'mov') { $('movTitulo').textContent = MODOS[modo].titulo; $('movAyuda').textContent = MODOS[modo].ayuda; cerrarProducto(); pintarLista(); aviso('movMsg'); }
+    if (vista === 'mov') { $('movTitulo').textContent = MODOS[modo].titulo; $('movAyuda').textContent = MODOS[modo].ayuda; cerrarProducto(); pintarLista(); aviso('movMsg'); cargarTickets(); }
     if (vista === 'saldos') refrescarSaldos();
     if (vista === 'conteo') abrirConteo();
     if (vista === 'usuarios') { limpiarFormUsu(); cargarUsuarios(); }
@@ -635,16 +642,45 @@
   }
 
   // ---------- ticket ----------
+  // Registro de tickets: el administrador ve todos y elige el día; el vendedor ve solo los suyos de hoy.
+  async function cargarTickets() {
+    if (modo !== 'TICKET') return;
+    const admin = yo && yo.rol === 'ADMIN';
+    $('misTickets').classList.remove('oculto');
+    $('tkFecha').classList.toggle('oculto', !admin);
+    if (admin && !$('tkFecha').value) $('tkFecha').value = new Date().toLocaleDateString('sv-SE');
+    try {
+      const j = await llamar('tickets', { fecha: $('tkFecha').value });
+      $('tkTitulo').textContent = j.admin ? 'Todos los tickets del día' : 'Mis tickets de hoy';
+      $('tkResumen').innerHTML = '<div class="aviso info">' + j.tickets.length + ' tickets · ' + pesos(j.total) + ' · ' + j.conBoleta + ' con boleta de Fuel</div>';
+      $('tkLista').innerHTML = j.tickets.length ? j.tickets.map(t => '<li><div><b>N° ' + esc(t.numero) + '</b> · ' +
+        esc(new Date(t.fecha).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })) + (j.admin ? ' · ' + esc(t.vendedor) : '') +
+        ' · <b>' + (t.total !== '' ? pesos(t.total) : 'sin precio') + '</b></div>' +
+        '<div class="sub" style="white-space:pre-line">' + esc(t.detalle) + '</div>' +
+        '<div class="sub">' + (t.boleta ? '<span style="color:#2e7d32">✓ Boleta ' + esc(t.boleta) + '</span>' : '<span style="color:#c62828">Sin boleta todavía</span>') + '</div></li>').join('')
+        : '<li class="sub">Sin tickets.</li>';
+    } catch (e) { $('tkResumen').innerHTML = '<div class="aviso error">' + esc(e.message) + '</div>'; }
+  }
+  $('tkFecha').addEventListener('change', cargarTickets);
+
   function mostrarTicket(t) {
     const f = new Date(t.fecha);
-    const html = ['<div class="titulo" style="text-align:center">Pronto · Carrito isla</div>',
+    const html = ['<div class="titulo" style="text-align:center">Gestión Carrito Pronto</div>',
       '<p class="sub" style="text-align:center">Ticket N° ' + t.numero + ' · ' + f.toLocaleDateString('es-CL') + ' ' +
-      f.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) + ' · ' + esc(t.vendedor) + '</p>'];
+      f.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) + ' · ' + esc(t.vendedor) + '</p>',
+      '<div class="aviso info noimprimir" style="text-align:center"><b>Para cobrar en el POS:</b> ingresa cada código en este orden. Las promos 2x ya vienen agrupadas.</div>'];
+    // promos primero: así el cajero las marca antes que lo suelto y el total sale igual que en el POS
+    t.lineas = t.lineas.slice().sort((a, b) => (b.pack ? 1 : 0) - (a.pack ? 1 : 0));
     t.lineas.forEach((l, i) => {
-      html.push('<div class="linea"><div class="fila"><span>' + l.cantidad + ' × ' + esc(l.nombre) + '</span><span>' +
+      const ver = l.pack ? 'border-left:6px solid #e30613;background:#fff4f4;' : 'border-left:6px solid #9e9e9e;';
+      html.push('<div class="linea" style="' + ver + 'padding:8px 10px;margin:8px 0;border-radius:8px">' +
+        '<div class="fila"><span><b style="font-size:18px">' + (i + 1) + '.</b> ' +
+        (l.pack ? '<span style="background:#e30613;color:#fff;border-radius:6px;padding:1px 6px;font-weight:700;font-size:12px">PROMO</span> ' : '') +
+        '<b>' + l.cantidad + ' × ' + esc(l.nombre) + '</b></span><span style="font-size:18px;font-weight:700">' +
         (l.subtotal !== '' ? pesos(l.subtotal) : '') + '</span></div>' +
-        (l.pack ? '<div class="sub">' + esc(l.sabores.join(' + ')) + '</div>' : '') +
-        '<div class="sub">Código ' + esc(l.codigo) + (l.precio ? ' · ' + pesos(l.precio) + ' c/u' : '') + '</div>' +
+        (l.pack ? '<div class="sub">Lleva: ' + esc(l.sabores.join(' + ')) + '</div>' : '') +
+        '<div style="font-size:20px;font-weight:700;letter-spacing:1px;margin-top:4px">Código: ' + esc(l.codigo) + '</div>' +
+        '<div class="sub">' + (l.precio ? pesos(l.precio) + (l.pack ? ' la promo' : ' c/u') : 'sin precio') + (l.cantidad > 1 ? ' · marcar ' + l.cantidad + ' veces' : '') + '</div>' +
         '<svg id="bc' + i + '"></svg></div>');
     });
     html.push('<div class="total"><span>TOTAL</span><span>' + (t.total !== '' ? pesos(t.total) : 'por confirmar') + '</span></div>');
@@ -662,6 +698,7 @@
     $('ticket').classList.remove('oculto');
     $('btnImprimir').addEventListener('click', () => window.print());
     $('btnNuevoTicket').addEventListener('click', () => { $('ticket').classList.add('oculto'); aviso('movMsg'); window.scrollTo(0, 0); });
+    cargarTickets();
     $('ticket').scrollIntoView({ behavior: 'smooth' });
   }
   function avisarNegativos(s) {
