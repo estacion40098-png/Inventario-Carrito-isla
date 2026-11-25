@@ -208,14 +208,29 @@
       <div id="conteoPacks"></div>
       <div id="lectorConteo" class="oculto"></div>
       <button class="btn" id="btnEscanearConteo" type="button">📷 Escanear producto</button>
+      <div id="pedirCant" class="oculto" style="margin-top:10px;padding:12px;border:2px solid #e30613;border-radius:12px">
+        <div id="pcProd" style="font-weight:700"></div>
+        <label for="pcNum">¿Cuántas unidades hay en la isla?</label>
+        <input id="pcNum" type="number" inputmode="numeric" min="0" style="font-size:28px;text-align:center">
+        <div id="pcMatch"></div>
+        <button class="btn" id="pcOk" type="button">Aceptar y escanear el siguiente</button>
+        <button class="btn sec" id="pcFin" type="button">Aceptar y terminar</button>
+      </div>
       <div id="conteoResumen"></div>
       <input id="filtroConteo" placeholder="Buscar producto">
       <div class="checks"><label><input type="checkbox" id="soloPacks"> Solo productos de packs 2x</label></div>
     </div>
     <div class="tarjeta">
       <ul class="lista" id="listaConteo"></ul>
-      <button class="btn" id="btnGuardarConteo" type="button">Guardar conteo</button>
+      <button class="btn" id="btnGuardarConteo" type="button">Guardar y generar comprobante</button>
       <div id="conteoMsg"></div>
+    </div>
+    <div class="tarjeta oculto" id="comprobante">
+      <div class="titulo">Comprobante de cuadratura</div>
+      <pre id="compTexto" style="white-space:pre-wrap;font-family:inherit;background:#f6f6f6;padding:10px;border-radius:10px"></pre>
+      <button class="btn" id="compWsp" type="button">Compartir por WhatsApp</button>
+      <button class="btn sec" id="compGrupo" type="button">Copiar y abrir grupo Carrito 2026/2027</button>
+      <div id="compMsg"></div>
     </div>
   </section>
 
@@ -226,6 +241,11 @@
       <p class="sub">Fuel no manda códigos de barra: cada producto de Fuel se une a uno del carrito. Los que se reconocen por nombre se unen solos; aquí revisas los que faltan.</p>
       <div id="cMsg"></div>
       <button class="btn sec" id="btnConcilia" type="button">Actualizar</button>
+    </div>
+    <div class="tarjeta">
+      <div class="titulo">Ventas Retail en Fuel (hoy y ayer)</div>
+      <p class="sub">Cada venta de Fuel y si ya se descontó del carrito. Se actualiza sola cada 20 segundos.</p>
+      <ul class="lista" id="cVentas"></ul>
     </div>
     <div class="tarjeta">
       <div class="titulo">Vendido en Fuel sin vincular</div>
@@ -250,6 +270,7 @@
       <select id="uRol"><option value="USUARIO">Usuario</option><option value="ADMIN">Administrador (puede todo)</option></select>
       <div id="uPermisosCaja">
         <label>Qué puede hacer</label>
+        <button class="btn sec" id="btnPerfilVendedor" type="button">Perfil vendedor del carrito (Vender + Cuadrar)</button>
         <div class="checks" id="uPermisos"></div>
       </div>
       <div class="checks"><label><input type="checkbox" id="uActivo" checked> Activo (si lo desmarcas, ya no puede ingresar)</label></div>
@@ -273,14 +294,14 @@
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwzGr2IK2yPYvaewti_rq9H_euhZcL_KJiJiDw4oTUUzwCD8JI15DyMUc9bmmWSRFfkEA/exec';
 
   const $ = id => document.getElementById(id);
-  const PERMISOS = { RECEPCION: 'Recibir mercadería', TRASLADO: 'Trasladar a la isla', VENTA: 'Descontar ventas', SALDOS: 'Ver saldos', CONTEO: 'Contar la isla', TICKET: 'Vender (tickets)' };
+  const PERMISOS = { RECEPCION: 'Recibir mercadería', TRASLADO: 'Trasladar a la isla', VENTA: 'Descontar ventas', SALDOS: 'Ver saldos', CONTEO: 'Cuadrar la isla', TICKET: 'Vender (tickets)' };
   const VISTAS = [
     { id: 'vender', txt: 'Vender', permiso: 'TICKET' },
     { id: 'recibir', txt: 'Recibir', permiso: 'RECEPCION' },
     { id: 'trasladar', txt: 'A isla', permiso: 'TRASLADO' },
     { id: 'ventas', txt: 'Ventas', permiso: 'VENTA' },
     { id: 'saldos', txt: 'Saldos', permiso: 'SALDOS' },
-    { id: 'conteo', txt: 'Conteo', permiso: 'CONTEO' },
+    { id: 'conteo', txt: 'Cuadrar', permiso: 'CONTEO' },
     { id: 'concilia', txt: 'Conciliar', admin: true },
     { id: 'usuarios', txt: 'Usuarios', admin: true }
   ];
@@ -403,14 +424,27 @@
       '<button class="btn" type="button" data-unir="' + i + '">Unir</button>' +
       '<button class="btn sec" type="button" data-no="' + i + '">No es del carrito</button></li>').join('')
       : '<li class="sub">Nada pendiente.</li>';
+    const vs = concilia.ventas || [];
+    const color = { 'descontada': '#2e7d32', 'sin vincular': '#c62828', 'no es del carrito': '#757575' };
+    $('cVentas').innerHTML = vs.length ? vs.map(v => '<li><div><b>' + esc(v.cantidad + ' x ' + v.nombre) + '</b>' +
+      (v.precio ? ' · ' + pesos(v.precio * v.cantidad) : '') + '</div><div class="sub">' +
+      (v.hora ? esc(new Date(v.hora).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) + ' · ' : '') +
+      'Boleta ' + esc(v.folio) + ' · <b style="color:' + color[v.estado] + '">' +
+      (v.estado === 'descontada' ? '✓ Descontada: ' + esc(v.producto) : v.estado === 'sin vincular' ? '✗ Sin vincular (únela abajo)' : 'No es del carrito') +
+      '</b></div></li>').join('') : '<li class="sub">Sin ventas Retail todavía (o el puente aún no envía datos).</li>';
     const q = sinTilde($('cFiltro').value);
     $('cProd').innerHTML = concilia.productos.filter(p => !q || sinTilde(p.descripcion).indexOf(q) >= 0)
       .sort((a, b) => a.fuel.length - b.fuel.length || a.descripcion.localeCompare(b.descripcion))
-      .map(p => '<li>' + conFoto(p) + (p.precio ? ' · ' + pesos(p.precio) : '') + '<div class="sub">' +
+      .map(p => '<li>' + conFoto(p) + (p.precio ? ' · ' + pesos(p.precio) : '') +
+        '<div class="sub">Vendido: <b>' + (p.vendido || 0) + '</b> · Isla: <b>' + (p.isla || 0) + '</b></div><div class="sub">' +
         (p.fuel.length ? '✓ En Fuel: ' + p.fuel.map(f => esc(f.nombre || f.pid)).join(' · ')
           : '<span style="color:#c62828">Sin unir: se une solo con su primera venta en Fuel</span>') + '</div></li>').join('');
   }
   $('cFiltro').addEventListener('input', pintarConcilia);
+  setInterval(() => { // al estar mirando Conciliar, se refresca sola (sin molestar si está eligiendo algo)
+    if (!$('v-concilia').classList.contains('oculto') && !document.hidden && !(document.activeElement && document.activeElement.tagName === 'SELECT'))
+      llamar('conciliacion').then(j => cargarConcilia(j)).catch(() => {});
+  }, 20000);
   $('btnConcilia').addEventListener('click', () => cargarConcilia());
   $('cSin').addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -737,7 +771,8 @@
     catch (e) { if (!silencioso) aviso('conteoMsg', 'error', e.message); }
   }
   async function abrirConteo() {
-    enfocado = null; pintarConteo(); aviso('conteoMsg', 'info', 'Actualizando…');
+    enfocado = null; $('pedirCant').classList.add('oculto'); $('comprobante').classList.add('oculto');
+    pintarConteo(); aviso('conteoMsg', 'info', 'Actualizando…');
     await actualizarSaldosConteo(false);
     clearInterval(relojConteo); // en tiempo real: refresca el sistema cada 20 s mientras se cuenta
     relojConteo = setInterval(() => { if ($('v-conteo').classList.contains('oculto')) { clearInterval(relojConteo); detenerLectorConteo(); } else actualizarSaldosConteo(true); }, 20000);
@@ -793,9 +828,59 @@
     if (!p) return aviso('conteoMsg', 'error', 'El código ' + cod + ' no es un producto del carrito.');
     aviso('conteoMsg'); enfocado = p.sku; $('filtroConteo').value = ''; $('soloPacks').checked = false;
     pintarConteo();
-    const i = $('listaConteo').querySelector('input'); i.focus(); i.select(); i.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    actualizarSaldosConteo(true); // trae el saldo más reciente para comparar
+    // pide la cantidad al tiro, en grande
+    $('pcProd').innerHTML = conFoto(p);
+    $('pcNum').value = conteo[p.sku] !== undefined ? conteo[p.sku] : '';
+    $('pcMatch').innerHTML = textoMatch(p.sku);
+    $('pedirCant').classList.remove('oculto');
+    $('pcNum').focus(); $('pcNum').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    actualizarSaldosConteo(true).then(() => { if (enfocado === p.sku) $('pcMatch').innerHTML = textoMatch(p.sku); }); // saldo más reciente
   }
+  $('pcNum').addEventListener('input', () => {
+    if (!enfocado) return;
+    if ($('pcNum').value === '') delete conteo[enfocado]; else conteo[enfocado] = $('pcNum').value;
+    mem.set('conteo', conteo);
+    $('pcMatch').innerHTML = textoMatch(enfocado);
+    const i = $('listaConteo').querySelector('input[data-sku="' + CSS.escape(enfocado) + '"]'); if (i) i.value = $('pcNum').value;
+    refrescarMatches();
+  });
+  function aceptarCant(seguir) {
+    if (!/^\d+$/.test($('pcNum').value)) return aviso('conteoMsg', 'error', 'Escribe la cantidad (0 si no queda ninguna).');
+    $('pedirCant').classList.add('oculto');
+    if (seguir) iniciarLectorConteo(); else $('btnGuardarConteo').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  $('pcOk').addEventListener('click', () => aceptarCant(true));
+  $('pcFin').addEventListener('click', () => aceptarCant(false));
+  $('pcNum').addEventListener('keydown', e => { if (e.key === 'Enter') aceptarCant(true); });
+
+  // ---------- comprobante para WhatsApp ----------
+  const GRUPO_CARRITO = 'https://chat.whatsapp.com/EePPXFMWC1HILQcHHRAMgR';
+  function armarComprobante(items, antes) {
+    const ahora = new Date();
+    let ok = 0;
+    const lineas = items.map(it => {
+      const s = antes[it.sku] || { descripcion: it.sku, isla: 0 };
+      const dif = it.contado - s.isla;
+      if (dif === 0) ok++;
+      return (dif === 0 ? '✅ ' : '❌ ') + s.descripcion + ': contado ' + it.contado + ' / sistema ' + s.isla +
+        (dif === 0 ? '' : dif > 0 ? ' (sobran ' + dif + ')' : ' (faltan ' + (-dif) + ')');
+    });
+    return '🧾 *Cuadratura Carrito Pronto Copec*\n' +
+      '📅 ' + ahora.toLocaleDateString('es-CL') + ' ' + ahora.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) + '\n' +
+      '👤 ' + (yo ? yo.nombre : '') + '\n\n' + lineas.join('\n') + '\n\n' +
+      (ok === items.length ? '✅ *Cuadrado: ' + ok + ' de ' + items.length + ' productos coinciden*' :
+        '⚠️ *' + ok + ' de ' + items.length + ' coinciden · ' + (items.length - ok) + ' con diferencia*');
+  }
+  $('compWsp').addEventListener('click', async () => {
+    const t = $('compTexto').textContent;
+    if (navigator.share) { try { await navigator.share({ text: t }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank');
+  });
+  $('compGrupo').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('compTexto').textContent); aviso('compMsg', 'ok', 'Copiado. En el grupo mantén apretado y pega.'); }
+    catch (e) { aviso('compMsg', 'error', 'No se pudo copiar: usa el botón Compartir.'); }
+    window.open(GRUPO_CARRITO, '_blank');
+  });
   $('btnEscanearConteo').addEventListener('click', () => lectorC ? detenerLectorConteo() : iniciarLectorConteo());
   $('filtroConteo').addEventListener('input', pintarConteo);
   $('soloPacks').addEventListener('change', pintarConteo);
@@ -807,7 +892,13 @@
     mem.set('lote.CONTEO', lote);
     $('btnGuardarConteo').disabled = true; aviso('conteoMsg', 'info', 'Guardando…');
     try {
+      const antes = {}; saldos.forEach(s => antes[s.sku] = s); // lo que decía el sistema al contar
       const j = await llamar('conteo', { lote, items });
+      if (!j.repetido) {
+        $('compTexto').textContent = armarComprobante(items, antes);
+        $('comprobante').classList.remove('oculto'); aviso('compMsg');
+        setTimeout(() => $('comprobante').scrollIntoView({ behavior: 'smooth' }), 100);
+      }
       guardarEstado(j);
       conteo = {}; mem.set('conteo', conteo); mem.set('lote.CONTEO', '');
       pintarConteo();
@@ -821,6 +912,10 @@
 
   // ---------- usuarios ----------
   $('uPermisos').innerHTML = Object.keys(PERMISOS).map(k => '<label><input type="checkbox" value="' + k + '"> ' + PERMISOS[k] + '</label>').join('');
+  $('btnPerfilVendedor').addEventListener('click', () => {
+    $('uRol').value = 'USUARIO'; $('uRol').dispatchEvent(new Event('change'));
+    $('uPermisos').querySelectorAll('input').forEach(i => i.checked = i.value === 'TICKET' || i.value === 'CONTEO');
+  });
   $('uRol').addEventListener('change', () => $('uPermisosCaja').classList.toggle('oculto', $('uRol').value === 'ADMIN'));
   function limpiarFormUsu() {
     $('uTitulo').textContent = 'Nuevo usuario';
