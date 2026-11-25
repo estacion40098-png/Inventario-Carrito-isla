@@ -219,8 +219,8 @@
         <label for="pcNum">¿Cuántas unidades hay en la isla?</label>
         <input id="pcNum" type="number" inputmode="numeric" min="0" style="font-size:28px;text-align:center">
         <div id="pcMatch"></div>
-        <button class="btn" id="pcOk" type="button">Aceptar y escanear el siguiente</button>
-        <button class="btn sec" id="pcFin" type="button">Aceptar y terminar</button>
+        <button class="btn" id="pcOk" type="button">Ingresar y escanear el siguiente</button>
+        <button class="btn sec" id="pcFin" type="button">Ingresar y terminar</button>
       </div>
       <div id="conteoResumen"></div>
       <input id="filtroConteo" placeholder="Buscar producto">
@@ -230,6 +230,11 @@
       <ul class="lista" id="listaConteo"></ul>
       <button class="btn" id="btnGuardarConteo" type="button">Guardar y generar comprobante</button>
       <div id="conteoMsg"></div>
+    </div>
+    <div class="tarjeta oculto" id="cuadresAdmin">
+      <div class="titulo">Cuadres enviados por los operadores</div>
+      <input id="cuFecha" type="date">
+      <div id="cuLista"></div>
     </div>
     <div class="tarjeta oculto" id="comprobante">
       <div class="titulo">Comprobante de cuadratura</div>
@@ -679,8 +684,9 @@
         '<b>' + l.cantidad + ' × ' + esc(l.nombre) + '</b></span><span style="font-size:18px;font-weight:700">' +
         (l.subtotal !== '' ? pesos(l.subtotal) : '') + '</span></div>' +
         (l.pack ? '<div class="sub">Lleva: ' + esc(l.sabores.join(' + ')) + '</div>' : '') +
-        '<div style="font-size:20px;font-weight:700;letter-spacing:1px;margin-top:4px">Código: ' + esc(l.codigo) + '</div>' +
-        '<div class="sub">' + (l.precio ? pesos(l.precio) + (l.pack ? ' la promo' : ' c/u') : 'sin precio') + (l.cantidad > 1 ? ' · marcar ' + l.cantidad + ' veces' : '') + '</div>' +
+        '<div style="font-size:20px;font-weight:700;letter-spacing:1px;margin-top:4px">' +
+        (/^2X-/i.test(l.codigo) ? 'Código 2x: <span style="color:#c62828">por definir</span>' : 'Código: ' + esc(l.codigo)) + '</div>' +
+        '<div class="sub">' + (l.precio ? pesos(l.precio) + (l.pack ? ' la promo' : ' c/u') : l.pack ? 'precio promo por definir' : 'sin precio') + (l.cantidad > 1 ? ' · marcar ' + l.cantidad + ' veces' : '') + '</div>' +
         '<svg id="bc' + i + '"></svg></div>');
     });
     html.push('<div class="total"><span>TOTAL</span><span>' + (t.total !== '' ? pesos(t.total) : 'por confirmar') + '</span></div>');
@@ -690,8 +696,8 @@
     $('ticket').innerHTML = html.join('');
     t.lineas.forEach((l, i) => {
       try {
-        if (typeof JsBarcode === 'undefined') throw 0;
         const cod = String(l.codigo);
+        if (typeof JsBarcode === 'undefined' || /^2X-/i.test(cod)) throw 0; // sin código real todavía: sin barras
         JsBarcode('#bc' + i, cod, { format: /^\d{13}$/.test(cod) ? 'EAN13' : /^\d{8}$/.test(cod) ? 'EAN8' : 'CODE128', height: 50, width: 2, fontSize: 14, margin: 4 });
       } catch (e) { const s = $('bc' + i); if (s) s.remove(); }
     });
@@ -809,13 +815,22 @@
   }
   async function abrirConteo() {
     enfocado = null; $('pedirCant').classList.add('oculto'); $('comprobante').classList.add('oculto');
+    cargarCuadres();
+    const cab = document.querySelector('#v-conteo .titulo'), ay = document.querySelector('#v-conteo .sub');
+    if (ciego()) {
+      cab.textContent = 'Cuadrar la isla';
+      ay.textContent = '1) Aprieta Escanear y apunta al código. 2) Escribe cuántas unidades hay. 3) Ingresa y sigue con el próximo. Al terminar, aprieta Enviar cuadre.';
+      $('btnGuardarConteo').textContent = 'Enviar cuadre a administración';
+    } else $('btnGuardarConteo').textContent = 'Guardar y generar comprobante';
     pintarConteo(); aviso('conteoMsg', 'info', 'Actualizando…');
     await actualizarSaldosConteo(false);
     clearInterval(relojConteo); // en tiempo real: refresca el sistema cada 20 s mientras se cuenta
     relojConteo = setInterval(() => { if ($('v-conteo').classList.contains('oculto')) { clearInterval(relojConteo); detenerLectorConteo(); } else actualizarSaldosConteo(true); }, 20000);
   }
   // Compara lo contado con el saldo de la isla en el sistema (si hay 2x sin repartir, lo avisa)
+  const ciego = () => !puede('SALDOS'); // el operador cuenta sin ver lo que dice el sistema
   function textoMatch(sku) {
+    if (ciego()) return conteo[sku] !== undefined && conteo[sku] !== '' ? '<span class="match si">✓ Anotado</span>' : '';
     const v = conteo[sku];
     if (v === undefined || v === '') return '';
     const s = saldos.find(x => x.sku === sku); if (!s) return '';
@@ -828,6 +843,7 @@
   function refrescarMatches() {
     $('listaConteo').querySelectorAll('input').forEach(i => { const m = $('m-' + i.dataset.sku); if (m) m.innerHTML = textoMatch(i.dataset.sku); });
     const hechos = Object.keys(conteo).filter(k => conteo[k] !== '');
+    if (ciego()) { $('conteoResumen').innerHTML = hechos.length ? '<div class="aviso info">' + hechos.length + ' productos anotados</div>' : ''; return; }
     const ok = hechos.filter(k => { const s = saldos.find(x => x.sku === k); return s && Number(conteo[k]) === s.isla; }).length;
     $('conteoResumen').innerHTML = hechos.length ? '<div class="aviso ' + (ok === hechos.length ? 'ok' : 'info') + '">' + hechos.length + ' contados · ' + ok + ' coinciden · ' + (hechos.length - ok) + ' con diferencia</div>' : '';
   }
@@ -836,6 +852,10 @@
     const enPacks = {}; packs.forEach(k => k.skus.forEach(s => enPacks[s] = 1));
     const t = sinTilde($('filtroConteo').value.trim()), solo = $('soloPacks').checked;
     let r = saldos.filter(x => (!solo || enPacks[x.sku]) && (!t || sinTilde(x.descripcion).includes(t)));
+    // Operador: no ve la lista completa, solo lo que ya escaneó (o lo que busque por nombre si el código no lee)
+    if (ciego()) r = t ? r : r.filter(x => conteo[x.sku] !== undefined && conteo[x.sku] !== '');
+    $('soloPacks').parentElement.parentElement.classList.toggle('oculto', ciego());
+    $('filtroConteo').placeholder = ciego() ? 'Si el código no lee, busca el producto por nombre' : 'Buscar producto';
     if (enfocado) r = r.filter(x => x.sku === enfocado).concat(r.filter(x => x.sku !== enfocado));
     $('listaConteo').innerHTML = r.map(x => '<li' + (x.sku === enfocado ? ' class="foco"' : '') + '>' + conFoto(x) + '<span class="der"><input type="number" inputmode="numeric" min="0" style="width:80px;margin:0" data-sku="' +
       esc(x.sku) + '" value="' + (conteo[x.sku] !== undefined ? conteo[x.sku] : '') + '" placeholder="—"><span id="m-' + esc(x.sku) + '"></span></span></li>').join('');
@@ -908,6 +928,44 @@
       (ok === items.length ? '✅ *Cuadrado: ' + ok + ' de ' + items.length + ' productos coinciden*' :
         '⚠️ *' + ok + ' de ' + items.length + ' coinciden · ' + (items.length - ok) + ' con diferencia*');
   }
+  // Administradores: cuadres del día enviados por los operadores, cada uno con su comprobante
+  let cuadres = [];
+  async function cargarCuadres() {
+    const admin = yo && yo.rol === 'ADMIN';
+    $('cuadresAdmin').classList.toggle('oculto', !admin);
+    if (!admin) return;
+    if (!$('cuFecha').value) $('cuFecha').value = new Date().toLocaleDateString('sv-SE');
+    try {
+      const j = await llamar('cuadres', { fecha: $('cuFecha').value });
+      cuadres = j.cuadres;
+      $('cuLista').innerHTML = cuadres.length ? cuadres.map((c, i) => {
+        const ok = c.items.filter(x => x.diferencia === 0).length;
+        return '<div class="aviso ' + (ok === c.items.length ? 'ok' : 'error') + '" style="cursor:pointer" data-cu="' + i + '"><b>' +
+          esc(new Date(c.fecha).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })) + ' · ' + esc(c.operador) + '</b><br>' +
+          ok + ' de ' + c.items.length + ' cuadran · toca para ver y compartir</div>';
+      }).join('') : '<p class="sub">Nadie ha enviado cuadre ese día.</p>';
+    } catch (e) { $('cuLista').innerHTML = '<div class="aviso error">' + esc(e.message) + '</div>'; }
+  }
+  $('cuFecha').addEventListener('change', cargarCuadres);
+  $('cuLista').addEventListener('click', e => {
+    const d = e.target.closest('[data-cu]'); if (!d) return;
+    const c = cuadres[+d.dataset.cu];
+    $('compTexto').textContent = textoCuadre(c.items, c.operador, new Date(c.fecha));
+    $('comprobante').classList.remove('oculto'); aviso('compMsg');
+    $('comprobante').scrollIntoView({ behavior: 'smooth' });
+  });
+  function textoCuadre(items, operador, fecha) {
+    let ok = 0;
+    const lineas = items.map(x => {
+      if (x.diferencia === 0) ok++;
+      return (x.diferencia === 0 ? '✅ ' : '❌ ') + x.descripcion + ': contado ' + x.contado + ' / sistema ' + x.sistema +
+        (x.diferencia === 0 ? '' : x.diferencia > 0 ? ' (sobran ' + x.diferencia + ')' : ' (faltan ' + (-x.diferencia) + (x.pack ? ', ' + x.pack + ' por promo 2x' : '') + ')');
+    });
+    return '🧾 *Cuadratura Carrito Pronto Copec*\n📅 ' + fecha.toLocaleDateString('es-CL') + ' ' +
+      fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) + '\n👤 ' + operador + '\n\n' + lineas.join('\n') + '\n\n' +
+      (ok === items.length ? '✅ *Cuadrado: ' + ok + ' de ' + items.length + ' productos coinciden*' :
+        '⚠️ *' + ok + ' de ' + items.length + ' coinciden · ' + (items.length - ok) + ' con diferencia*');
+  }
   $('compWsp').addEventListener('click', async () => {
     const t = $('compTexto').textContent;
     if (navigator.share) { try { await navigator.share({ text: t }); return; } catch (e) { if (e.name === 'AbortError') return; } }
@@ -931,6 +989,12 @@
     try {
       const antes = {}; saldos.forEach(s => antes[s.sku] = s); // lo que decía el sistema al contar
       const j = await llamar('conteo', { lote, items });
+      if (j.ciego) {
+        conteo = {}; mem.set('conteo', conteo); mem.set('lote.CONTEO', ''); pintarConteo();
+        aviso('conteoMsg', 'ok', j.repetido ? 'Ese cuadre ya estaba enviado.' : '✓ Cuadre enviado a administración (' + (j.contados || items.length) + ' productos). Gracias.');
+        $('btnGuardarConteo').disabled = false;
+        return;
+      }
       if (!j.repetido) {
         $('compTexto').textContent = armarComprobante(items, antes);
         $('comprobante').classList.remove('oculto'); aviso('compMsg');
