@@ -195,6 +195,7 @@
       <input id="filtroSaldos" placeholder="Buscar producto">
       <button class="btn sec" id="btnRefrescar" type="button">Actualizar</button>
       <div id="saldosMsg"></div>
+      <button class="btn oculto" id="btnGuardarStock" type="button">Guardar cambios de stock</button>
       <div id="saldosPacks"></div>
     </div>
     <div class="tarjeta">
@@ -794,12 +795,52 @@
   $('btnVentaManual').addEventListener('click', () => { modo = 'VENTA'; mostrar('mov'); });
 
   // ---------- saldos ----------
+  // Administradores: bodega e isla se pueden corregir aquí mismo (queda registrado como ajuste)
+  let cambiosStock = {};
+  const esAdmin = () => yo && yo.rol === 'ADMIN';
   function pintarSaldos() {
     const t = sinTilde($('filtroSaldos').value.trim());
     const r = saldos.filter(x => !t || sinTilde(x.descripcion).includes(t) || x.sku.includes(t) || x.ean.includes(t));
     $('saldosPacks').innerHTML = textoPacks();
-    $('tablaSaldos').innerHTML = r.map(x => '<tr><td>' + conFoto(x) + '</td><td class="n' + (x.bodega < 0 ? ' neg' : '') + '">' + x.bodega + '</td><td class="n' + (x.isla < 0 ? ' neg' : '') + '">' + x.isla + '</td><td class="n">' + x.vendido + '</td></tr>').join('');
+    const celda = (x, campo) => {
+      const v = cambiosStock[x.sku] && cambiosStock[x.sku][campo] !== undefined ? cambiosStock[x.sku][campo] : x[campo];
+      if (!esAdmin()) return '<td class="n' + (x[campo] < 0 ? ' neg' : '') + '">' + x[campo] + '</td>';
+      return '<td class="n"><input type="number" inputmode="numeric" data-sku="' + esc(x.sku) + '" data-campo="' + campo + '" value="' + v +
+        '" style="width:64px;margin:0;padding:6px;text-align:right' + (v !== x[campo] ? ';background:#fff3cd' : '') + '"></td>';
+    };
+    $('tablaSaldos').innerHTML = r.map(x => '<tr><td>' + conFoto(x) +
+      (esAdmin() && tieneEan(x) ? '<div class="sub">EAN ' + esc(x.ean) + ' · <a href="#" data-quitar="' + esc(x.sku) + '">quitar código</a></div>' : '') +
+      '</td>' + celda(x, 'bodega') + celda(x, 'isla') + '<td class="n">' + x.vendido + '</td></tr>').join('');
+    const n = Object.keys(cambiosStock).length;
+    $('btnGuardarStock').classList.toggle('oculto', !esAdmin() || !n);
+    $('btnGuardarStock').textContent = 'Guardar cambios de stock (' + n + ')';
   }
+  $('tablaSaldos').addEventListener('input', e => {
+    const i = e.target; if (!i.dataset.campo) return;
+    const x = saldos.find(s => s.sku === i.dataset.sku); const v = parseInt(i.value, 10);
+    const c = cambiosStock[x.sku] || (cambiosStock[x.sku] = {});
+    if (isNaN(v) || v === x[i.dataset.campo]) delete c[i.dataset.campo]; else c[i.dataset.campo] = v;
+    if (!Object.keys(c).length) delete cambiosStock[x.sku];
+    i.style.background = c[i.dataset.campo] !== undefined ? '#fff3cd' : '';
+    const n = Object.keys(cambiosStock).length;
+    $('btnGuardarStock').classList.toggle('oculto', !n); $('btnGuardarStock').textContent = 'Guardar cambios de stock (' + n + ')';
+  });
+  $('tablaSaldos').addEventListener('click', async e => {
+    const a = e.target.closest('[data-quitar]'); if (!a) return; e.preventDefault();
+    const x = saldos.find(s => s.sku === a.dataset.quitar);
+    if (!confirm('¿Quitar el código ' + x.ean + ' de "' + x.descripcion + '"? Úsalo si se le asignó un código equivocado.')) return;
+    try { const j = await llamar('quitarEan', { sku: x.sku }); guardarEstado(j); await cargarCatalogo(); pintarSaldos(); aviso('saldosMsg', 'ok', 'Código quitado de ' + x.descripcion + '.'); }
+    catch (er) { aviso('saldosMsg', 'error', er.message); }
+  });
+  $('btnGuardarStock').addEventListener('click', async () => {
+    const items = Object.keys(cambiosStock).map(sku => Object.assign({ sku }, cambiosStock[sku]));
+    const nota = prompt('Motivo del cambio (queda registrado):', 'Corrección de stock');
+    if (nota === null) return;
+    $('btnGuardarStock').disabled = true; aviso('saldosMsg', 'info', 'Guardando…');
+    try { const j = await llamar('fijarStock', { items, nota }); guardarEstado(j); cambiosStock = {}; pintarSaldos(); aviso('saldosMsg', 'ok', '✓ Stock actualizado (' + items.length + ' productos).'); }
+    catch (er) { aviso('saldosMsg', 'error', er.message); }
+    $('btnGuardarStock').disabled = false;
+  });
   async function refrescarSaldos() {
     pintarSaldos(); aviso('saldosMsg', 'info', 'Actualizando…');
     try { const j = await llamar('saldos'); guardarEstado(j); pintarSaldos(); aviso('saldosMsg'); }
