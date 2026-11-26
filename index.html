@@ -809,7 +809,9 @@
         '" style="width:64px;margin:0;padding:6px;text-align:right' + (v !== x[campo] ? ';background:#fff3cd' : '') + '"></td>';
     };
     $('tablaSaldos').innerHTML = r.map(x => '<tr><td>' + conFoto(x) +
-      (esAdmin() && tieneEan(x) ? '<div class="sub">EAN ' + esc(x.ean) + ' · <a href="#" data-quitar="' + esc(x.sku) + '">quitar código</a></div>' : '') +
+      (esAdmin() ? '<div class="sub">' + (tieneEan(x) ? 'EAN ' + esc(x.ean) + ' · ' : 'Sin código · ') +
+        '<a href="#" data-cambiar="' + esc(x.sku) + '">' + (tieneEan(x) ? 'cambiar' : 'poner código') + '</a>' +
+        (tieneEan(x) ? ' · <a href="#" data-quitar="' + esc(x.sku) + '">quitar</a>' : '') + '</div>' : '') +
       '</td>' + celda(x, 'bodega') + celda(x, 'isla') + '<td class="n">' + x.vendido + '</td></tr>').join('');
     const n = Object.keys(cambiosStock).length;
     $('btnGuardarStock').classList.toggle('oculto', !esAdmin() || !n);
@@ -826,6 +828,18 @@
     $('btnGuardarStock').classList.toggle('oculto', !n); $('btnGuardarStock').textContent = 'Guardar cambios de stock (' + n + ')';
   });
   $('tablaSaldos').addEventListener('click', async e => {
+    const cb = e.target.closest('[data-cambiar]');
+    if (cb) {
+      e.preventDefault();
+      const x = saldos.find(s => s.sku === cb.dataset.cambiar);
+      const ean = prompt('Código de barras para "' + x.descripcion + '":', tieneEan(x) ? x.ean : '');
+      if (ean === null || ean.trim() === x.ean) return;
+      try {
+        const j = await llamar('cambiarEan', { sku: x.sku, ean: ean.trim() }); guardarEstado(j); await cargarCatalogo(); pintarSaldos();
+        aviso('saldosMsg', 'ok', '✓ ' + x.descripcion + ' ahora tiene el código ' + ean.trim() + '.' + (j.quitadoDe && j.quitadoDe.length ? ' Se lo quité a: ' + j.quitadoDe.join(', ') + '.' : ''));
+      } catch (er) { aviso('saldosMsg', 'error', er.message); }
+      return;
+    }
     const a = e.target.closest('[data-quitar]'); if (!a) return; e.preventDefault();
     const x = saldos.find(s => s.sku === a.dataset.quitar);
     if (!confirm('¿Quitar el código ' + x.ean + ' de "' + x.descripcion + '"? Úsalo si se le asignó un código equivocado.')) return;
