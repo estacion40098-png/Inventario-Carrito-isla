@@ -564,12 +564,14 @@
   $('btnEscanear').addEventListener('click', () => lector ? detenerLector() : iniciarLector());
 
   // ---------- búsqueda ----------
-  function procesarCodigo(cod) {
+  async function procesarCodigo(cod, reintento) {
     cod = String(cod).trim();
     $('codManual').value = ''; $('sugerencias').innerHTML = '';
     const p = catalogo.find(x => x.ean === cod || x.sku === cod ||
       (/^\d+$/.test(cod) && /^\d+$/.test(x.ean) && x.ean.replace(/^0+/, '') === cod.replace(/^0+/, '')));
     if (p) return abrirProducto(p);
+    // Puede ser un producto recién agregado a la planilla: se trae la lista de nuevo antes de decir que no existe
+    if (!reintento) { try { aviso('movMsg', 'info', 'Buscando en la planilla…'); await cargarCatalogo(); aviso('movMsg'); return procesarCodigo(cod, true); } catch (e) { aviso('movMsg'); } }
     abrirDesconocido(cod);
   }
   $('codManual').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.value.trim()) procesarCodigo(e.target.value); });
